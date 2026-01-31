@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Endless Worldle</title>
+
+<style>
+:root { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+body { margin:0; background:#0b0d12; color:#e9eefc; }
+header { padding:14px; background:#0f1220; border-bottom:1px solid rgba(255,255,255,.1); }
+h1 { margin:0; font-size:18px; }
+.sub { font-size:12px; opacity:.8; margin-top:4px; }
+
+.controls {
+  display:flex; gap:10px; margin-top:10px; flex-wrap:wrap;
+}
+input, select, button {
+  height:34px;
+  border-radius:10px;
+  border:1px solid rgba(255,255,255,.15);
+  background:rgba(255,255,255,.06);
+  color:#fff;
+  padding:0 10px;
+}
+button { cursor:pointer; }
+button:hover { background:rgba(255,255,255,.1); }
+button.danger { border-color:rgba(255,80,80,.4); }
+
+main { display:grid; grid-template-columns: 1.4fr .6fr; gap:12px; padding:12px; }
+.panel { background:rgba(255,255,255,.04); border-radius:14px; border:1px solid rgba(255,255,255,.1); overflow:hidden; }
+.panel h3 { margin:0; padding:10px; font-size:13px; border-bottom:1px solid rgba(255,255,255,.1); }
+
+#map { height:70vh; }
+#guesses { padding:10px 20px; font-size:13px; }
+
+.country { fill:rgba(255,255,255,.06); stroke:rgba(255,255,255,.25); stroke-width:.6; }
+.country:hover { fill:rgba(255,255,255,.1); }
+.target { fill:rgba(255,210,90,.25) !important; stroke:rgba(255,210,90,.7) !important; }
+.correct { fill:rgba(80,255,160,.3) !important; stroke:rgba(80,255,160,.8) !important; }
+</style>
+</head>
+
+<body>
+<header>
+  <h1>Endless Worldle</h1>
+  <div class="sub">Guess countries • Zoom & pan • Study by region</div>
+
+  <div class="controls">
+    <select id="mode"></select>
+    <input id="guess" placeholder="Type a country…" />
+    <button id="guessBtn">Guess</button>
+    <button id="giveUp" class="danger">Give Up</button>
+    <button id="reset">Broad View</button>
+    <button id="new">New</button>
+  </div>
+
+  <div class="sub">
+    Attempts: <span id="attempts">0</span> |
+    Hint: <span id="hint">—</span> |
+    Answer: <span id="answer">—</span>
+  </div>
+</header>
+
+<main>
+  <div class="panel">
+    <h3>Map</h3>
+    <div id="map"></div>
+  </div>
+  <div class="panel">
+    <h3>Guesses</h3>
+    <ol id="guesses"></ol>
+  </div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+<script src="https://cdn.jsdelivr.net/npm/topojson-client@3"></script>
+
+<script>
+const regions = {
+  "All Countries": [],
+  "South America": ["Argentina","Bolivia","Brazil","Chile","Colombia","Ecuador","Guyana","Paraguay","Peru","Suriname","Uruguay","Venezuela"],
+  "Western Africa": ["Ghana","Nigeria","Senegal","Mali","Niger"],
+  "Northern Africa": ["Algeria","Egypt","Libya","Morocco","Tunisia"],
+  "Southern Africa": ["South Africa","Namibia","Botswana","Zimbabwe"],
+  "South East Asia": ["Thailand","Vietnam","Malaysia","Indonesia","Philippines"]
+};
+
+const width = window.innerWidth * .65;
+const height = window.innerHeight * .7;
+
+const svg = d3.select("#map").append("svg")
+  .attr("width", width)
+  .attr("height", height);
+
+const g = svg.append("g");
+
+const zoom = d3.zoom().scaleExtent([1,12]).on("zoom", e => g.attr("transform", e.transform));
+svg.call(zoom);
+
+let countries, answer, attempts = 0;
+
+fetch("https://unpkg.com/world-atlas@2/countries-10m.json")
+.then(r => r.json())
+.then(world => {
+  countries = topojson.feature(world, world.objects.countries).features;
+  draw();
+  setupModes();
+  newRound();
+});
+
+function draw() {
+  const projection = d3.geoNaturalEarth1().fitSize([width,height], {type:"FeatureCollection",features:countries});
+  const path = d3.geoPath(projection);
+
+  g.selectAll("path")
+    .data(countries)
+    .enter()
+    .append("path")
+    .attr("class","country")
+    .attr("d",path)
+    .on("click",(e,d)=> {
+      document.getElementById("guess").value = d.properties.name;
+    });
+
+  window.path = path;
+}
+
+function setupModes() {
+  const sel = document.getElementById("mode");
+  Object.keys(regions).forEach(r=>{
+    const o=document.createElement("option");
+    o.textContent=r; o.value=r;
+    sel.appendChild(o);
+  });
+}
+
+function newRound() {
+  attempts=0;
+  document.getElementById("attempts").textContent=0;
+  document.getElementById("guesses").innerHTML="";
+  document.getElementById("answer").textContent="—";
+  g.selectAll("path").classed("correct target",false);
+
+  const mode = document.getElementById("mode").value;
+  const pool = regions[mode].length
+    ? countries.filter(c=>regions[mode].includes(c.properties.name))
+    : countries;
+
+  answer = pool[Math.floor(Math.random()*pool.length)];
+}
+
+document.getElementById("guessBtn").onclick = ()=>{
+  const val=document.getElementById("guess").value.trim();
+  const c=countries.find(x=>x.properties.name.toLowerCase()===val.toLowerCase());
+  if(!c) return;
+
+  attempts++;
+  document.getElementById("attempts").textContent=attempts;
+
+  if(c===answer){
+    c3(c,"correct");
+    document.getElementById("hint").textContent="Correct!";
+  } else {
+    c3(c,"target");
+    document.getElementById("hint").textContent="Try another direction";
+  }
+
+  document.getElementById("guesses").innerHTML =
+    `<li>${c.properties.name}</li>` + document.getElementById("guesses").innerHTML;
+};
+
+document.getElementById("giveUp").onclick=()=>{
+  document.getElementById("answer").textContent=answer.properties.name;
+  c3(answer,"correct");
+};
+
+document.getElementById("new").onclick=newRound;
+document.getElementById("reset").onclick=()=>svg.transition().call(zoom.transform,d3.zoomIdentity);
+
+function c3(c,cls){
+  g.selectAll("path").classed(cls,false);
+  g.selectAll("path").filter(d=>d===c).classed(cls,true);
+}
+</script>
+</body>
+</html>
